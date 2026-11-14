@@ -22,42 +22,50 @@
       </section>
 
       <section class="workspace" aria-label="Farm crop planner">
-        <form id="planner-form" class="form-card">
+        <form id="planner-form" class="form-card" novalidate>
           <div class="card-heading">
             <span class="step">YOUR FARM</span>
             <h2>Farm details</h2>
             <p>Coordinates help us find climate data for your area.</p>
           </div>
 
-          <label for="continent">Continent</label>
-          <select id="continent" name="continent" required>
-            <option value="">Choose a continent</option>
-            <option>Africa</option>
-            <option>Asia</option>
-            <option>Europe</option>
-            <option>North America</option>
-            <option>South America</option>
-            <option>Oceania</option>
-          </select>
-
-          <label for="country">Country</label>
-          <select id="country" name="country" required disabled>
-            <option value="">Choose a continent first</option>
-          </select>
-
-          <label for="region">State / province / region</label>
-          <input id="region" name="region" maxlength="100" placeholder="e.g. Central Region" required disabled />
-
-          <label for="district">District / county / local area <span class="optional">if used in your country</span></label>
-          <input id="district" name="district" maxlength="100" placeholder="e.g. Mukono" disabled />
-
-          <label for="locality">Town / village / nearest place</label>
-          <input id="locality" name="locality" maxlength="100" placeholder="e.g. Mukono" required disabled />
-
-          <button id="find-place" class="secondary-button" type="button" disabled>Find my place</button>
-          <p id="place-message" class="field-hint" role="status" aria-live="polite">Choose a continent and country to continue.</p>
-          <div id="place-results" class="place-results" aria-label="Matching places"></div>
+          <button id="use-gps" class="gps-button" type="button"><span aria-hidden="true">📍</span> Use my current location</button>
+          <p id="gps-message" class="field-hint" role="status" aria-live="polite">Allow location access when your phone asks. You do not need to type your country or district.</p>
           <p id="selected-place" class="selected-place" hidden></p>
+
+          <details id="manual-details" class="manual-details">
+            <summary>Or enter my location by hand</summary>
+            <div class="manual-fields">
+            <label for="continent">Continent</label>
+            <select id="continent" name="continent" required>
+              <option value="">Choose a continent</option>
+              <option>Africa</option>
+              <option>Asia</option>
+              <option>Europe</option>
+              <option>North America</option>
+              <option>South America</option>
+              <option>Oceania</option>
+            </select>
+
+            <label for="country">Country</label>
+            <select id="country" name="country" required disabled>
+              <option value="">Choose a continent first</option>
+            </select>
+
+            <label for="region">State / province / region</label>
+            <input id="region" name="region" maxlength="100" placeholder="e.g. Central Region" required disabled />
+
+            <label for="district">District / county / local area <span class="optional">if used in your country</span></label>
+            <input id="district" name="district" maxlength="100" placeholder="e.g. Mukono" disabled />
+
+            <label for="locality">Town / village / nearest place</label>
+            <input id="locality" name="locality" maxlength="100" placeholder="e.g. Mukono" required disabled />
+
+            <button id="find-place" class="secondary-button" type="button" disabled>Find my place</button>
+            <p id="place-message" class="field-hint" role="status" aria-live="polite">Choose a continent and country to continue.</p>
+            <div id="place-results" class="place-results" aria-label="Matching places"></div>
+            </div>
+          </details>
 
           <label for="last-crop">What did you grow last season?</label>
           <select id="last-crop" name="last_crop">
@@ -94,11 +102,38 @@
           </fieldset>
 
           <button id="submit-button" class="primary-button" type="submit">Get my crop plan <span aria-hidden="true">→</span></button>
-          <p class="privacy-note">Choose a matching place before requesting a plan. Place searches use Open-Meteo; climate coordinates go to NASA POWER. Your location and plan are stored in this project’s database.</p>
+          <p class="privacy-note">Use your current location or choose a matching place before requesting a plan. Typed place searches use Open-Meteo. If you use your current location, it is rounded to about 1 km and sent to OpenStreetMap (Nominatim) to find the place name; the same rounded coordinates go to NASA POWER. Your location and plan are stored in this project’s database.</p>
           <p id="form-message" class="form-message" role="status" aria-live="polite"></p>
         </form>
 
         <section class="result-column" aria-label="Recommendation results">
+          <section id="conditions-card" class="conditions-card" aria-label="Current conditions at your farm" hidden>
+            <div class="result-top">
+              <div>
+                <p class="step">RIGHT NOW AT YOUR FARM</p>
+                <h2 id="conditions-title">Recent conditions</h2>
+              </div>
+            </div>
+            <p id="conditions-window" class="field-hint"></p>
+            <div class="metric-row" id="conditions-metrics"></div>
+            <ul id="conditions-findings" class="findings-list"></ul>
+            <button id="conditions-ask" class="secondary-button" type="button">💬 What should I do about this?</button>
+            <p id="conditions-note" class="data-note"></p>
+          </section>
+          <section id="forecast-card" class="conditions-card" aria-label="Weather forecast for the next 14 days" hidden>
+            <div class="result-top">
+              <div>
+                <p class="step">COMING UP</p>
+                <h2>Next 14 days</h2>
+              </div>
+            </div>
+            <div id="forecast-chart" class="forecast-chart" role="img"></div>
+            <p class="field-hint chart-caption">Bars show forecast rain per day (mm). Numbers below are the day of the month.</p>
+            <ul id="forecast-findings" class="findings-list"></ul>
+            <p id="forecast-note" class="data-note"></p>
+          </section>
+          <p id="conditions-status" class="field-hint" role="status" aria-live="polite" hidden></p>
+
           <div id="empty-state" class="empty-card">
             <div class="empty-illustration" aria-hidden="true">🌱</div>
             <h2>Your farm plan will appear here</h2>
@@ -161,6 +196,20 @@
         <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">NASA POWER daily API documentation</a>
       </details>
     </main>
+    <button id="chat-toggle" class="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel"><span aria-hidden="true">💬</span> Ask AgriSmart</button>
+    <section id="chat-panel" class="chat-panel" hidden aria-label="Farm assistant chat">
+      <header class="chat-header">
+        <div><strong>AgriSmart assistant</strong><span id="chat-subtitle">Ask about your crops and farm plan</span></div>
+        <button id="chat-close" class="chat-close" type="button" aria-label="Close chat">×</button>
+      </header>
+      <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+      <div id="chat-suggestions" class="chat-suggestions"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" name="message" maxlength="1500" autocomplete="off" placeholder="Type your question…" aria-label="Your question" />
+        <button id="chat-send" class="chat-send" type="submit">Send</button>
+      </form>
+      <p class="chat-note">AI answers can be wrong. Check important decisions with a local agricultural extension worker.</p>
+    </section>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="/script.js" defer></script>
   </body>

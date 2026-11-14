@@ -17,6 +17,16 @@ let nasaMap = null;
 let placeMarker = null;
 let imageryLayer = null;
 let formRevision = 0;
+let gpsRequestId = 0;
+let lastPlan = null;
+let lastConditions = null;
+let conditionsRequestId = 0;
+let lastForecast = null;
+let forecastRequestId = 0;
+
+const gpsButton = document.getElementById("use-gps");
+const gpsMessage = document.getElementById("gps-message");
+const manualDetails = document.getElementById("manual-details");
 
 form.addEventListener("input", () => { formRevision++; clearResult(); });
 form.addEventListener("change", () => { formRevision++; clearResult(); });
@@ -120,6 +130,89 @@ placeButton.addEventListener("click", async () => {
   }
 });
 
+gpsButton.addEventListener("click", () => {
+  if (!("geolocation" in navigator)) {
+    gpsFail("This browser cannot share your location. Please enter it by hand.");
+    return;
+  }
+  if (!window.isSecureContext) {
+    gpsFail("Location sharing needs a secure (https) page. Please enter your location by hand.");
+    return;
+  }
+  resetPlaceSelection();
+  const requestId = gpsRequestId;
+  setGpsBusy(true, "Finding your location…");
+  gpsMessage.textContent = "Waiting for your phone. Tap Allow if it asks for permission.";
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      if (requestId !== gpsRequestId) return;
+      const { latitude, longitude, accuracy } = position.coords;
+      setGpsBusy(true, "Finding your area…");
+      try {
+        const params = new URLSearchParams({
+          lat: latitude.toFixed(5),
+          lon: longitude.toFixed(5),
+          language: navigator.language || "en"
+        });
+        const response = await fetch(`/api/locations/reverse?${params}`);
+        const place = await response.json();
+        if (!response.ok) throw new Error(place.error || "Could not look up your area.");
+        if (requestId !== gpsRequestId) return;
+        selectedPlace = {
+          source: "gps",
+          name: place.locality,
+          path: place.location,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          meta: place
+        };
+        selectedPlaceLabel.textContent = `Your location: ${place.location} (${place.latitude.toFixed(2)}, ${place.longitude.toFixed(2)})`;
+        selectedPlaceLabel.hidden = false;
+        const rounded = Math.round(accuracy);
+        gpsMessage.textContent = accuracy > 5000
+          ? `Location found, but only accurate to about ${rounded} m. Try again outside or with GPS switched on for a better result.`
+          : `Location found (accurate to about ${rounded} m). You can request your plan now.`;
+        manualDetails.open = false;
+        submitButton.disabled = false;
+        clearResult();
+        loadConditions(selectedPlace);
+      } catch (error) {
+        if (requestId !== gpsRequestId) return;
+        gpsFail(errorMessage(error, "Could not look up your area. Please enter it by hand."));
+      } finally {
+        if (requestId === gpsRequestId) setGpsBusy(false);
+      }
+    },
+    (error) => {
+      if (requestId !== gpsRequestId) return;
+      setGpsBusy(false);
+      if (error.code === error.PERMISSION_DENIED) {
+        gpsFail("Location permission was blocked. Allow location for this site in your browser or phone settings and try again, or enter it by hand.");
+      } else if (error.code === error.TIMEOUT) {
+        gpsFail("Your phone took too long to find you. Move to an open area, switch GPS on, and try again, or enter it by hand.");
+      } else {
+        gpsFail("Your location is not available right now. Check that GPS is on, or enter it by hand.");
+      }
+    },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }
+  );
+});
+
+function setGpsBusy(busy, label) {
+  gpsButton.disabled = busy;
+  gpsButton.replaceChildren();
+  const icon = document.createElement("span");
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = "📍";
+  gpsButton.append(icon, ` ${busy ? label : "Use my current location"}`);
+}
+
+function gpsFail(message) {
+  setGpsBusy(false);
+  gpsMessage.textContent = message;
+  manualDetails.open = true;
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   formMessage.textContent = "";
@@ -136,15 +229,27 @@ form.addEventListener("submit", async (event) => {
 
   const soilPH = document.getElementById("ph").value;
   const previousCrop = document.getElementById("last-crop").value;
-  const countryOption = countrySelect.selectedOptions[0];
+  const farm = selectedPlace.source === "gps"
+    ? {
+        location: selectedPlace.meta.location,
+        continent: selectedPlace.meta.continent,
+        country: selectedPlace.meta.country,
+        country_code: selectedPlace.meta.country_code,
+        region: selectedPlace.meta.region,
+        district: selectedPlace.meta.district,
+        locality: selectedPlace.meta.locality
+      }
+    : {
+        location: selectedPlace.path,
+        continent: continentSelect.value,
+        country: countrySelect.selectedOptions[0].textContent,
+        country_code: countrySelect.value,
+        region: regionInput.value.trim(),
+        district: districtInput.value.trim(),
+        locality: localityInput.value.trim()
+      };
   const payload = {
-    location: selectedPlace.path,
-    continent: continentSelect.value,
-    country: countryOption.textContent,
-    country_code: countrySelect.value,
-    region: regionInput.value.trim(),
-    district: districtInput.value.trim(),
-    locality: localityInput.value.trim(),
+    ...farm,
     latitude: selectedPlace.latitude,
     longitude: selectedPlace.longitude,
     soil_type: document.getElementById("soil").value,
@@ -201,11 +306,14 @@ function makePlaceOption(place) {
     placeMessage.textContent = "Location selected. Review the hierarchy, then request your plan.";
     submitButton.disabled = false;
     clearResult();
+    loadConditions(selectedPlace);
   });
   return button;
 }
 
 function resetPlaceSelection() {
+  gpsRequestId++;
+  hideConditions();
   selectedPlace = null;
   selectedPlaceLabel.hidden = true;
   resultsList.replaceChildren();
@@ -228,6 +336,7 @@ function option(value, label) {
 }
 
 function showResult(result) {
+  lastPlan = result;
   document.getElementById("empty-state").hidden = true;
   document.getElementById("result-card").hidden = false;
   document.getElementById("result-title").textContent = result.rotation.join(" → ");
@@ -303,6 +412,7 @@ function updateNASAmap(place) {
 }
 
 function clearResult() {
+  lastPlan = null;
   document.getElementById("result-card").hidden = true;
   document.getElementById("empty-state").hidden = false;
 }
@@ -335,3 +445,275 @@ function errorMessage(error, fallback) {
 }
 
 submitButton.disabled = true;
+
+/* ---------- Chat assistant ---------- */
+const chatToggle = document.getElementById("chat-toggle");
+const chatPanel = document.getElementById("chat-panel");
+const chatClose = document.getElementById("chat-close");
+const chatLog = document.getElementById("chat-log");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatSuggestions = document.getElementById("chat-suggestions");
+const chatHistory = [];
+const suggestionPrompts = [
+  "What should I do about current conditions?",
+  "Why this rotation?",
+  "Should I plant this week?",
+  "What if the rains come late?"
+];
+
+function openChat() {
+  chatPanel.hidden = false;
+  chatToggle.hidden = true;
+  chatToggle.setAttribute("aria-expanded", "true");
+  if (chatLog.children.length === 0) {
+    addBubble("bot", "Hello! I can explain your crop plan or answer farming questions. What would you like to know?");
+    renderSuggestions();
+  }
+  chatInput.focus();
+}
+
+function closeChat() {
+  chatPanel.hidden = true;
+  chatToggle.hidden = false;
+  chatToggle.setAttribute("aria-expanded", "false");
+  chatToggle.focus();
+}
+
+chatToggle.addEventListener("click", openChat);
+chatClose.addEventListener("click", closeChat);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !chatPanel.hidden) closeChat();
+});
+
+function renderSuggestions() {
+  chatSuggestions.replaceChildren(...suggestionPrompts.map((text) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chat-chip";
+    chip.textContent = text;
+    chip.addEventListener("click", () => sendChat(text));
+    return chip;
+  }));
+}
+
+function addBubble(kind, text) {
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${kind}`;
+  bubble.textContent = text;
+  chatLog.append(bubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return bubble;
+}
+
+function chatContext() {
+  if (!lastPlan && !selectedPlace) return null;
+  const context = {};
+  if (selectedPlace) {
+    context.location = selectedPlace.path;
+    context.latitude = Number(selectedPlace.latitude.toFixed(2));
+    context.longitude = Number(selectedPlace.longitude.toFixed(2));
+  }
+  if (lastConditions) context.conditions = lastConditions;
+  if (lastForecast) {
+    context.forecast = {
+      provider: lastForecast.provider,
+      rain_next_7_days_mm: lastForecast.rain_next_7_days_mm,
+      rain_next_14_days_mm: lastForecast.rain_next_14_days_mm,
+      first_rain_date: lastForecast.first_rain_date,
+      findings: lastForecast.findings,
+      outlook: lastForecast.outlook,
+      days: lastForecast.days.map((d) => [d.date, d.rain_mm, d.tmax_c, d.tmin_c])
+    };
+  }
+  if (lastPlan) {
+    context.plan = {
+      rotation: lastPlan.rotation,
+      confidence: lastPlan.confidence,
+      headline: lastPlan.headline,
+      recommendations: lastPlan.recommendations,
+      reasons: lastPlan.reasons,
+      risks: lastPlan.risks,
+      climate: lastPlan.climate,
+      data_source: lastPlan.data_source,
+      data_period: lastPlan.data_period
+    };
+  }
+  return context;
+}
+
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendChat(chatInput.value);
+});
+
+async function sendChat(rawText) {
+  const text = rawText.trim();
+  if (!text || chatSend.disabled) return;
+  chatInput.value = "";
+  chatSuggestions.replaceChildren();
+  addBubble("user", text);
+  chatHistory.push({ role: "user", content: text });
+  chatSend.disabled = true;
+  const typing = addBubble("bot typing", "Thinking…");
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: chatHistory.slice(-12),
+        context: chatContext(),
+        language: navigator.language || "en"
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "The assistant could not answer.");
+    typing.remove();
+    addBubble("bot", data.reply);
+    chatHistory.push({ role: "assistant", content: data.reply });
+  } catch (error) {
+    typing.remove();
+    chatHistory.pop();
+    addBubble("error", errorMessage(error, "The assistant could not answer. Please try again."));
+  } finally {
+    chatSend.disabled = false;
+    chatInput.focus();
+  }
+}
+
+/* ---------- Recent NASA conditions ---------- */
+const conditionsCard = document.getElementById("conditions-card");
+const conditionsStatus = document.getElementById("conditions-status");
+const forecastCard = document.getElementById("forecast-card");
+
+async function loadConditions(place) {
+  const requestId = ++conditionsRequestId;
+  lastConditions = null;
+  conditionsCard.hidden = true;
+  conditionsStatus.hidden = false;
+  conditionsStatus.textContent = "Checking the latest NASA data for your location…";
+  try {
+    const params = new URLSearchParams({ lat: place.latitude.toFixed(2), lon: place.longitude.toFixed(2) });
+    const response = await fetch(`/api/conditions?${params}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Recent conditions are unavailable.");
+    if (requestId !== conditionsRequestId) return;
+    lastConditions = data;
+    renderConditions(data);
+    conditionsStatus.hidden = true;
+  } catch (error) {
+    if (requestId !== conditionsRequestId) return;
+    conditionsStatus.textContent = errorMessage(error, "Recent conditions are unavailable right now.");
+  }
+  // The forecast is fetched afterwards so the server can reuse the cached NASA
+  // data to combine "what happened" with "what is coming".
+  if (requestId === conditionsRequestId) loadForecast(place);
+}
+
+async function loadForecast(place) {
+  const requestId = ++forecastRequestId;
+  lastForecast = null;
+  forecastCard.hidden = true;
+  try {
+    const params = new URLSearchParams({ lat: place.latitude.toFixed(2), lon: place.longitude.toFixed(2) });
+    const response = await fetch(`/api/forecast?${params}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "The forecast is unavailable.");
+    if (requestId !== forecastRequestId) return;
+    lastForecast = data;
+    renderForecast(data);
+  } catch (error) {
+    if (requestId !== forecastRequestId) return;
+    forecastStatusMessage(errorMessage(error, "The forecast is unavailable right now."));
+  }
+}
+
+function forecastStatusMessage(message) {
+  conditionsStatus.hidden = false;
+  conditionsStatus.textContent = lastConditions ? `Forecast: ${message}` : message;
+}
+
+function renderForecast(data) {
+  const maxRain = Math.max(10, ...data.days.map((day) => day.rain_mm));
+  const chart = document.getElementById("forecast-chart");
+  const labels = document.createElement("div");
+  labels.className = "forecast-labels";
+  chart.replaceChildren(...data.days.map((day) => {
+    const column = document.createElement("div");
+    column.className = "forecast-day";
+    column.title = `${day.date}: ${day.rain_mm.toFixed(1)} mm rain, ${Math.round(day.tmin_c)}–${Math.round(day.tmax_c)}°C`;
+    const amount = document.createElement("span");
+    amount.className = "forecast-amount";
+    amount.textContent = day.rain_mm >= 1 ? Math.round(day.rain_mm) : "";
+    const bar = document.createElement("div");
+    bar.className = `forecast-bar${day.rain_mm < 0.5 ? " none" : day.rain_mm >= 25 ? " heavy" : ""}`;
+    bar.style.height = `${Math.max(2, (day.rain_mm / maxRain) * 100)}%`;
+    column.append(amount, bar);
+    return column;
+  }));
+  chart.setAttribute("aria-label",
+    `Forecast rain for the next ${data.days.length} days: ${Math.round(data.rain_next_7_days_mm)} mm in the next 7 days and ${Math.round(data.rain_next_14_days_mm)} mm in total.`);
+  // Day-of-month labels live in a second row so they line up with the bars.
+  labels.replaceChildren(...data.days.map((day) => {
+    const label = document.createElement("span");
+    label.textContent = String(Number(day.date.slice(8, 10)));
+    return label;
+  }));
+  const oldLabels = chart.parentElement.querySelector(".forecast-labels");
+  if (oldLabels) oldLabels.remove();
+  chart.after(labels);
+
+  const findings = [...(data.outlook || []), ...data.findings];
+  document.getElementById("forecast-findings").replaceChildren(...findings.map(findingItem));
+  document.getElementById("forecast-note").textContent = `Forecast from ${data.provider}. ${data.note}`;
+  forecastCard.hidden = false;
+}
+
+function findingItem(finding) {
+  const item = document.createElement("li");
+  item.className = `finding level-${finding.level}`;
+  const title = document.createElement("strong");
+  title.textContent = finding.topic;
+  if (finding.level !== "ok") {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = finding.level === "alert" ? "ACT NOW" : "WATCH";
+    title.append(badge);
+  }
+  const text = document.createElement("span");
+  text.textContent = finding.message;
+  item.append(title, text);
+  return item;
+}
+
+function hideConditions() {
+  forecastRequestId++;
+  lastForecast = null;
+  forecastCard.hidden = true;
+  conditionsRequestId++;
+  lastConditions = null;
+  conditionsCard.hidden = true;
+  conditionsStatus.hidden = true;
+}
+
+function renderConditions(data) {
+  document.getElementById("conditions-window").textContent =
+    `Last ${data.window_days} days of NASA data (${data.window_label}) compared with the same time in the previous ${data.baseline_years} years.`;
+  const recent = data.recent;
+  const normal = data.normal;
+  document.getElementById("conditions-metrics").replaceChildren(
+    metric("Rain (usual)", `${Math.round(recent.rainfall_mm)} mm (${Math.round(normal.rainfall_mm)} mm)`),
+    metric("Average temperature (usual)", `${recent.mean_temp_c.toFixed(1)}°C (${normal.mean_temp_c.toFixed(1)}°C)`),
+    metric("Rain in last 7 days", `${Math.round(data.rain_last_7_days_mm)} mm`),
+    metric("Days since 1 mm+ rain", `${data.days_since_rain}${data.days_since_rain >= data.window_days ? "+" : ""}`)
+  );
+  document.getElementById("conditions-findings").replaceChildren(...data.findings.map(findingItem));
+  document.getElementById("conditions-note").textContent = `${data.source}, up to ${data.data_through}. ${data.note}`;
+  conditionsCard.hidden = false;
+}
+
+document.getElementById("conditions-ask").addEventListener("click", () => {
+  openChat();
+  sendChat("Based on recent conditions and the forecast for my farm, what should I do in the next two weeks?");
+});

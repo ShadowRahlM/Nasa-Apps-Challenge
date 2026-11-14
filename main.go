@@ -31,6 +31,13 @@ type app struct {
 	countryCacheMu   sync.Mutex
 	countryCache     []cachedCountry
 	countryCacheTill time.Time
+	chatLimiter      *rateLimiter
+
+	conditionsLimiter *rateLimiter
+	conditionsMu      sync.Mutex
+	conditionsCache   map[string]cachedConditions
+	forecastMu        sync.Mutex
+	forecastCache     map[string]cachedForecast
 }
 
 type planRequest struct {
@@ -148,12 +155,16 @@ func main() {
 		log.Fatalf("initialize PostgreSQL schema: %v", err)
 	}
 
-	server := &app{db: db, httpClient: &http.Client{Timeout: 45 * time.Second}}
+	server := &app{db: db, httpClient: &http.Client{Timeout: 45 * time.Second}, chatLimiter: newRateLimiter(chatRequestsPerMin), conditionsLimiter: newRateLimiter(30)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
 	mux.HandleFunc("GET /api/locations/countries", server.listCountries)
 	mux.HandleFunc("GET /api/locations/search", server.searchPlaces)
+	mux.HandleFunc("GET /api/locations/reverse", server.reverseLocation)
+	mux.HandleFunc("GET /api/conditions", server.conditions)
+	mux.HandleFunc("GET /api/forecast", server.forecast)
 	mux.HandleFunc("POST /api/plans", server.createPlan)
+	mux.HandleFunc("POST /api/chat", server.chat)
 	mux.HandleFunc("GET /", serveAsset("index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /styles.css", serveAsset("styles.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /script.js", serveAsset("script.js", "text/javascript; charset=utf-8"))
@@ -524,8 +535,10 @@ func validateRequest(req *planRequest) error {
 	if req.SoilPH != nil && (*req.SoilPH < 3 || *req.SoilPH > 10 || math.IsNaN(*req.SoilPH) || math.IsInf(*req.SoilPH, 0)) {
 		return errors.New("Soil pH must be between 3 and 10.")
 	}
-	if !supportedContinent(req.Continent) || strings.TrimSpace(req.Country) == "" ||
-		len(req.Country) > 100 || len(req.CountryCode) != 2 {
+	// GPS lookups can fail to name the country; the coordinates are what the
+	// climate data needs, so an empty continent/country code is allowed.
+	if (req.Continent != "" && !supportedContinent(req.Continent)) || strings.TrimSpace(req.Country) == "" ||
+		len(req.Country) > 100 || (req.CountryCode != "" && len(req.CountryCode) != 2) {
 		return errors.New("Choose a continent and country.")
 	}
 	for _, character := range req.CountryCode {
