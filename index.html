@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Get a climate-informed crop rotation plan for your farm." />
+    <title>AgriSmart | Farm planner</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="AgriSmart home"><span class="brand-icon">A</span> AgriSmart</a>
+      <span class="topbar-note">Your farm, your next season</span>
+    </header>
+
+    <main class="page">
+      <section class="intro">
+        <p class="kicker">A practical plan for your farm</p>
+        <h1>Choose crops with your seasons in mind.</h1>
+        <p class="intro-copy">Tell us where your farm is and what matters most. We’ll use recent NASA climate data to suggest a rotation and explain the trade-offs.</p>
+      </section>
+
+      <section class="workspace" aria-label="Farm crop planner">
+        <form id="planner-form" class="form-card">
+          <div class="card-heading">
+            <span class="step">YOUR FARM</span>
+            <h2>Farm details</h2>
+            <p>Coordinates help us find climate data for your area.</p>
+          </div>
+
+          <label for="continent">Continent</label>
+          <select id="continent" name="continent" required>
+            <option value="">Choose a continent</option>
+            <option>Africa</option>
+            <option>Asia</option>
+            <option>Europe</option>
+            <option>North America</option>
+            <option>South America</option>
+            <option>Oceania</option>
+          </select>
+
+          <label for="country">Country</label>
+          <select id="country" name="country" required disabled>
+            <option value="">Choose a continent first</option>
+          </select>
+
+          <label for="region">State / province / region</label>
+          <input id="region" name="region" maxlength="100" placeholder="e.g. Central Region" required disabled />
+
+          <label for="district">District / county / local area <span class="optional">if used in your country</span></label>
+          <input id="district" name="district" maxlength="100" placeholder="e.g. Mukono" disabled />
+
+          <label for="locality">Town / village / nearest place</label>
+          <input id="locality" name="locality" maxlength="100" placeholder="e.g. Mukono" required disabled />
+
+          <button id="find-place" class="secondary-button" type="button" disabled>Find my place</button>
+          <p id="place-message" class="field-hint" role="status" aria-live="polite">Choose a continent and country to continue.</p>
+          <div id="place-results" class="place-results" aria-label="Matching places"></div>
+          <p id="selected-place" class="selected-place" hidden></p>
+
+          <label for="last-crop">What did you grow last season?</label>
+          <select id="last-crop" name="last_crop">
+            <option value="">I’m not sure / first season</option>
+            <option value="Maize">Maize</option>
+            <option value="Beans">Beans</option>
+            <option value="Sorghum">Sorghum</option>
+            <option value="Soybean">Soybean</option>
+            <option value="Sweet potato">Sweet potato</option>
+            <option value="Groundnut">Groundnut</option>
+          </select>
+
+          <label for="soil">Soil type <span class="optional">if known</span></label>
+          <select id="soil" name="soil">
+            <option value="">I’m not sure</option>
+            <option value="loam">Loam</option>
+            <option value="sandy_loam">Sandy loam</option>
+            <option value="clay">Clay</option>
+          </select>
+
+          <label for="ph">Soil pH <span class="optional">if tested</span></label>
+          <input id="ph" name="ph" type="number" step="0.1" min="3" max="10" placeholder="Leave blank if unknown" />
+
+          <fieldset>
+            <legend>What matters most to you?</legend>
+            <p class="field-hint">Choose up to three priorities.</p>
+            <div class="priority-options">
+              <label class="check-option"><input type="checkbox" name="priority" value="income" checked /> Better income</label>
+              <label class="check-option"><input type="checkbox" name="priority" value="food" checked /> Food for my family</label>
+              <label class="check-option"><input type="checkbox" name="priority" value="soil" checked /> Healthy soil</label>
+              <label class="check-option"><input type="checkbox" name="priority" value="water" /> Save water</label>
+              <label class="check-option"><input type="checkbox" name="priority" value="risk" /> Reduce bad-season risk</label>
+            </div>
+          </fieldset>
+
+          <button id="submit-button" class="primary-button" type="submit">Get my crop plan <span aria-hidden="true">→</span></button>
+          <p class="privacy-note">Choose a matching place before requesting a plan. Place searches use Open-Meteo; climate coordinates go to NASA POWER. Your location and plan are stored in this project’s database.</p>
+          <p id="form-message" class="form-message" role="status" aria-live="polite"></p>
+        </form>
+
+        <section class="result-column" aria-label="Recommendation results">
+          <div id="empty-state" class="empty-card">
+            <div class="empty-illustration" aria-hidden="true">🌱</div>
+            <h2>Your farm plan will appear here</h2>
+            <p>Complete your farm details to get a seasonal crop suggestion with the reasons and risks in plain language.</p>
+          </div>
+
+          <article id="result-card" class="result-card" hidden>
+            <div class="result-top">
+              <div>
+                <p class="step">SUGGESTED ROTATION</p>
+                <h2 id="result-title"></h2>
+              </div>
+              <span id="confidence" class="confidence"></span>
+            </div>
+            <p id="result-headline" class="result-headline"></p>
+            <ol id="rotation-list" class="rotation-list"></ol>
+            <div class="metric-row" id="climate-summary"></div>
+            <section class="map-panel" aria-label="NASA satellite map">
+              <div class="map-heading">
+                <div><h3>Satellite view of your area</h3><p>NASA MODIS Terra true-colour imagery</p></div>
+                <a id="worldview-link" href="https://worldview.earthdata.nasa.gov/" target="_blank" rel="noreferrer">Open NASA Worldview ↗</a>
+              </div>
+              <div id="nasa-map" aria-label="Interactive NASA satellite map centered on the selected farm area"></div>
+              <p id="map-note" class="field-hint">Imagery provides geographic context; it does not identify crop health or field boundaries.</p>
+            </section>
+            <details class="climate-details">
+              <summary>More seasonal climate details</summary>
+              <p id="expanded-climate"></p>
+            </details>
+            <div class="result-section">
+              <h3>Why this may suit your farm</h3>
+              <ul id="reasons-list"></ul>
+            </div>
+            <div class="notice">
+              <strong>Check before planting</strong>
+              <ul id="risks-list"></ul>
+            </div>
+            <p class="data-note" id="data-note"></p>
+          </article>
+
+        </section>
+      </section>
+      <p class="disclaimer">This is decision support, not a guarantee of harvest. Check the plan with a local agricultural extension worker before planting.</p>
+
+      <details class="data-sources">
+        <summary>What data does this planner use?</summary>
+        <p class="data-intro">Climate estimates come from NASA POWER for the selected coordinates, covering the previous 10 complete years. The planner identifies the two highest-rainfall non-overlapping three-month windows in that record. These are climate periods, not verified planting seasons. It uses these daily datasets:</p>
+        <ul>
+          <li><strong>PRECTOTCORR</strong> — corrected precipitation, in mm/day; summed to compare three-month rainfall windows and estimate seasonal rainfall.</li>
+          <li><strong>T2M</strong> — air temperature at 2 metres, in °C; averaged by season.</li>
+          <li><strong>T2M_MAX</strong> — daily maximum air temperature at 2 metres, in °C; used to count days above 35°C.</li>
+          <li><strong>EVPTRNS</strong> — evapotranspiration, in mm/day; summed and compared with rainfall as a broad water indicator.</li>
+          <li><strong>GWETROOT</strong> — root-zone soil wetness index; averaged as a modelled indicator, not a field soil test.</li>
+        </ul>
+        <p>Each location gets its own two wettest non-overlapping three-month windows, which can fall in different calendar months than March–May and September–November. Trend values describe the historical record, not a forecast. NASA POWER is a gridded estimate and may not match conditions on an individual farm.</p>
+        <p>Country names and broad regional groupings use the <a href="https://api.worldbank.org/v2/country?format=json" target="_blank" rel="noreferrer">World Bank country API</a>. Place names and coordinates use <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noreferrer">Open-Meteo Geocoding</a>; choosing a result shows its available region and district hierarchy.</p>
+        <p><strong>Language:</strong> The app’s original interface is English. Use your browser or device’s “Translate page” feature for other languages; coverage and farming-term accuracy depend on that translation service. Place search requests names in your browser’s language when the geocoder supports it. Farm coordinates and crop plans are not sent to a translation service by this app.</p>
+        <p><strong>NASA mapping use cases:</strong> the map above displays MODIS Terra true-colour satellite imagery from NASA GIBS for visual land and weather context. NASA Worldview can be used to explore additional imagery layers. Future integrations could add NASA FIRMS fire detections for nearby fire awareness, MODIS vegetation indices for broad vegetation change, or SRTM elevation for terrain and erosion context; those are not used in the current crop recommendation.</p>
+        <p>Not currently integrated: MODIS vegetation indices, FAO GAEZ crop suitability, and SRTM elevation/slope. They are possible future datasets, not used in this plan. The crop list has six starter crops and is not complete for every region; crop characteristics are not NASA measurements and must be checked with local agronomy guidance.</p>
+        <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">NASA POWER daily API documentation</a>
+      </details>
+    </main>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="/script.js" defer></script>
+  </body>
+</html>
