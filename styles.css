@@ -123,6 +123,12 @@ fieldset .field-hint { margin: 0 0 10px; }
 .chat-close { width: 36px; height: 36px; border: 0; border-radius: 10px; background: rgb(255 255 255 / 16%); color: #fff; font-size: 1.4rem; line-height: 1; cursor: pointer; }
 .chat-log { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--ground); }
 .chat-bubble { max-width: 86%; padding: 10px 13px; border-radius: 14px; font-size: .93rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble.bot { white-space: normal; }
+.chat-bubble.bot p { margin: 0 0 8px; }
+.chat-bubble.bot p:last-child { margin-bottom: 0; }
+.chat-bubble.bot ul, .chat-bubble.bot ol { margin: 0 0 8px; padding-left: 22px; }
+.chat-bubble.bot li + li { margin-top: 3px; }
+.chat-bubble.bot code { padding: 1px 4px; border-radius: 4px; background: var(--ground); font-size: .88em; }
 .chat-bubble.bot { align-self: flex-start; background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
 .chat-bubble.user { align-self: flex-end; background: var(--green); color: #fff; border-bottom-right-radius: 4px; }
 .chat-bubble.error { align-self: flex-start; background: #fdeceb; border: 1px solid #f1c4c0; color: #8a2d24; }
@@ -152,6 +158,7 @@ fieldset .field-hint { margin: 0 0 10px; }
 .finding.level-alert { border-left-color: #c4483a; background: #fdeceb; }
 .finding .badge { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: rgb(0 0 0 / 8%); font-size: .7rem; font-weight: 750; letter-spacing: .04em; }
 .chat-toggle[hidden] { display: none; }
+.map-legend { margin: 0; font-size: .8rem; }
 
 /* Forecast */
 .forecast-chart { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; align-items: end; height: 150px; margin-top: 12px; padding: 8px 4px 0; border-bottom: 1px solid var(--line); }

@@ -168,12 +168,13 @@ func main() {
 	mux.HandleFunc("GET /", serveAsset("index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /styles.css", serveAsset("styles.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /script.js", serveAsset("script.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /api-config.js", serveAsset("api-config.js", "text/javascript; charset=utf-8"))
 
-	addr := envOr("ADDR", ":8080")
+	addr := envOr("ADDR", ":"+envOr("PORT", "8080"))
 	log.Printf("AgriSmart listening on %s", addr)
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           withSecurityHeaders(mux),
+		Handler:           withSecurityHeaders(withCORS(os.Getenv("ALLOWED_ORIGINS"), mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      55 * time.Second,
@@ -990,6 +991,38 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withCORS(allowedOrigins string, next http.Handler) http.Handler {
+	origins := make(map[string]struct{})
+	for _, origin := range strings.Split(allowedOrigins, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		_, allowed := origins[origin]
+		if r.Method == http.MethodOptions {
+			if origin == "" || !allowed {
+				http.Error(w, "Origin is not allowed.", http.StatusForbidden)
+				return
+			}
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if allowed {
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

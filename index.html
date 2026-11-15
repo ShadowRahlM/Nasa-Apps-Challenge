@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Get a climate-informed crop rotation plan for your farm." />
     <title>AgriSmart | Farm planner</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   </head>
   <body>
@@ -151,13 +151,14 @@
             <p id="result-headline" class="result-headline"></p>
             <ol id="rotation-list" class="rotation-list"></ol>
             <div class="metric-row" id="climate-summary"></div>
-            <section class="map-panel" aria-label="NASA satellite map">
+            <section class="map-panel" aria-label="NASA satellite and vegetation map">
               <div class="map-heading">
-                <div><h3>Satellite view of your area</h3><p>NASA MODIS Terra true-colour imagery</p></div>
+                <div><h3>Satellite view of your area</h3><p>Choose true-colour imagery or the MODIS vegetation index in the map controls.</p></div>
                 <a id="worldview-link" href="https://worldview.earthdata.nasa.gov/" target="_blank" rel="noreferrer">Open NASA Worldview ↗</a>
               </div>
               <div id="nasa-map" aria-label="Interactive NASA satellite map centered on the selected farm area"></div>
-              <p id="map-note" class="field-hint">Imagery provides geographic context; it does not identify crop health or field boundaries.</p>
+              <p id="map-note" class="field-hint">The optional MODIS Terra NDVI layer shows broad vegetation greenness, not crop identity or field-level suitability.</p>
+              <p class="map-legend"><a href="https://gibs.earthdata.nasa.gov/legends/MODIS_L3_NDVI_H.svg" target="_blank" rel="noreferrer">View NASA’s NDVI color legend</a></p>
             </section>
             <details class="climate-details">
               <summary>More seasonal climate details</summary>
@@ -191,8 +192,8 @@
         <p>Each location gets its own two wettest non-overlapping three-month windows, which can fall in different calendar months than March–May and September–November. Trend values describe the historical record, not a forecast. NASA POWER is a gridded estimate and may not match conditions on an individual farm.</p>
         <p>Country names and broad regional groupings use the <a href="https://api.worldbank.org/v2/country?format=json" target="_blank" rel="noreferrer">World Bank country API</a>. Place names and coordinates use <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noreferrer">Open-Meteo Geocoding</a>; choosing a result shows its available region and district hierarchy.</p>
         <p><strong>Language:</strong> The app’s original interface is English. Use your browser or device’s “Translate page” feature for other languages; coverage and farming-term accuracy depend on that translation service. Place search requests names in your browser’s language when the geocoder supports it. Farm coordinates and crop plans are not sent to a translation service by this app.</p>
-        <p><strong>NASA mapping use cases:</strong> the map above displays MODIS Terra true-colour satellite imagery from NASA GIBS for visual land and weather context. NASA Worldview can be used to explore additional imagery layers. Future integrations could add NASA FIRMS fire detections for nearby fire awareness, MODIS vegetation indices for broad vegetation change, or SRTM elevation for terrain and erosion context; those are not used in the current crop recommendation.</p>
-        <p>Not currently integrated: MODIS vegetation indices, FAO GAEZ crop suitability, and SRTM elevation/slope. They are possible future datasets, not used in this plan. The crop list has six starter crops and is not complete for every region; crop characteristics are not NASA measurements and must be checked with local agronomy guidance.</p>
+        <p><strong>NASA mapping:</strong> the recommendation view displays MODIS Terra true-colour imagery and provides an optional MODIS Terra 16-day NDVI visualization through NASA GIBS. NDVI is a broad vegetation-greenness indicator from approximately 250 m pixels; mixed land cover, clouds, and acquisition timing limit interpretation. This visualization does not identify crops or change the crop ranking. See NASA’s <a href="https://www.earthdata.nasa.gov/data/catalog/lpcloud-mod13q1-061" target="_blank" rel="noreferrer">MOD13Q1 product description</a>. NASA Worldview can be used to explore more imagery layers.</p>
+        <p>Not currently integrated into crop suitability: MODIS-derived crop/field classification, FAO GAEZ crop suitability, and SRTM elevation/slope. The crop list has six starter crops and is not complete for every region; crop characteristics are not NASA measurements and must be checked with local agronomy guidance.</p>
         <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">NASA POWER daily API documentation</a>
       </details>
     </main>
@@ -211,6 +212,7 @@
       <p class="chat-note">AI answers can be wrong. Check important decisions with a local agricultural extension worker.</p>
     </section>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/script.js" defer></script>
+    <script src="./api-config.js" defer></script>
+    <script src="./script.js" defer></script>
   </body>
 </html>

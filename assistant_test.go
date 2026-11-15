@@ -154,18 +154,19 @@ func TestReverseLocationRejectsBadCoordinates(t *testing.T) {
 	}
 }
 
-func TestChatCallsAnthropicWithServerKeyAndFarmContext(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+func TestChatCallsGroqWithServerKeyAndFarmContext(t *testing.T) {
+	t.Setenv("GROQ_API_KEY", "test-key")
+	t.Setenv("GROQ_MODEL", "test-model")
 	var sent map[string]any
 	srv := &app{
 		chatLimiter: newRateLimiter(5),
 		httpClient: &http.Client{Transport: fakeTransport(func(r *http.Request) (*http.Response, error) {
-			if r.Header.Get("x-api-key") != "test-key" || r.Header.Get("anthropic-version") == "" {
-				t.Error("missing Anthropic auth headers")
+			if r.URL.String() != groqChatCompletionsURL || r.Header.Get("Authorization") != "Bearer test-key" {
+				t.Error("missing Groq URL or authorization header")
 			}
 			body, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(body, &sent)
-			return jsonResponse(200, `{"content":[{"type":"text","text":"Plant beans first."}]}`), nil
+			return jsonResponse(200, `{"choices":[{"message":{"role":"assistant","content":"Plant beans first."}}]}`), nil
 		})},
 	}
 	body := `{"messages":[{"role":"user","content":"What should I plant?"}],"context":{"location":"Mukono, Uganda","plan":{"rotation":["Beans","Maize"]}}}`
@@ -174,8 +175,17 @@ func TestChatCallsAnthropicWithServerKeyAndFarmContext(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Plant beans first.") {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
-	if system, _ := sent["system"].(string); !strings.Contains(system, "Mukono, Uganda") || !strings.Contains(system, "<farm_context>") {
-		t.Fatalf("farm context missing from system prompt: %v", sent["system"])
+	if model, _ := sent["model"].(string); model != "test-model" {
+		t.Fatalf("model = %q, want test-model", model)
+	}
+	messages, _ := sent["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("messages = %v, want system and user messages", messages)
+	}
+	system, _ := messages[0].(map[string]any)
+	systemContent, _ := system["content"].(string)
+	if system["role"] != "system" || !strings.Contains(systemContent, "Mukono, Uganda") || !strings.Contains(systemContent, "<farm_context>") {
+		t.Fatalf("farm context missing from system message: %v", messages[0])
 	}
 	if strings.Contains(rec.Body.String(), "test-key") {
 		t.Fatal("API key must never reach the browser")
@@ -183,7 +193,7 @@ func TestChatCallsAnthropicWithServerKeyAndFarmContext(t *testing.T) {
 }
 
 func TestChatWithoutAPIKeyExplainsSetupIsMissing(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GROQ_API_KEY", "")
 	srv := &app{chatLimiter: newRateLimiter(5), httpClient: &http.Client{}}
 	rec := httptest.NewRecorder()
 	srv.chat(rec, httptest.NewRequest("POST", "/api/chat", strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`)))

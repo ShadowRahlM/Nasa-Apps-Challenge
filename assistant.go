@@ -19,7 +19,7 @@ import (
 )
 
 const reverseGeocodingURL = "https://nominatim.openstreetmap.org/reverse"
-const anthropicMessagesURL = "https://api.anthropic.com/v1/messages"
+const groqChatCompletionsURL = "https://api.groq.com/openai/v1/chat/completions"
 
 // ---------------------------------------------------------------------------
 // GPS: turn device coordinates into the same place details the manual form
@@ -138,7 +138,7 @@ func fillFromAddress(place *reversePlace, addr map[string]string) {
 }
 
 // ---------------------------------------------------------------------------
-// Chat assistant. The Anthropic API key stays on the server; the browser only
+// Chat assistant. The Groq API key stays on the server; the browser only
 // ever talks to /api/chat.
 // ---------------------------------------------------------------------------
 
@@ -222,7 +222,7 @@ func clientIP(r *http.Request) string {
 }
 
 func (s *app) chat(w http.ResponseWriter, r *http.Request) {
-	apiKey := strings.TrimSpace(envOr("ANTHROPIC_API_KEY", ""))
+	apiKey := strings.TrimSpace(envOr("GROQ_API_KEY", ""))
 	if apiKey == "" {
 		writeError(w, http.StatusServiceUnavailable, "The assistant is not set up yet. Ask the app owner to add an API key.")
 		return
@@ -245,11 +245,11 @@ func (s *app) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	system := chatSystemPrompt + "\n\n<farm_context>\n" + compactContext(request.Context) + "\n</farm_context>"
+	messages = append([]chatMessage{{Role: "system", Content: system}}, messages...)
 	payload, err := json.Marshal(map[string]any{
-		"model":      envOr("CHAT_MODEL", "claude-sonnet-5-5"),
-		"max_tokens": 600,
-		"system":     system,
-		"messages":   messages,
+		"model":                 envOr("GROQ_MODEL", "qwen/qwen3.8-27b"),
+		"max_completion_tokens": 600,
+		"messages":              messages,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Could not prepare your message.")
@@ -258,14 +258,13 @@ func (s *app) chat(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, groqChatCompletionsURL, bytes.NewReader(payload))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Could not reach the assistant.")
 		return
 	}
 	req.Header.Set("content-type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -281,22 +280,21 @@ func (s *app) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		writeError(w, http.StatusBadGateway, "The assistant sent an unreadable reply.")
 		return
 	}
-	var reply strings.Builder
-	for _, block := range out.Content {
-		if block.Type == "text" {
-			reply.WriteString(block.Text)
-		}
+	if len(out.Choices) == 0 {
+		writeError(w, http.StatusBadGateway, "The assistant had no answer. Please rephrase and try again.")
+		return
 	}
-	text := strings.TrimSpace(reply.String())
+	text := strings.TrimSpace(out.Choices[0].Message.Content)
 	if text == "" {
 		writeError(w, http.StatusBadGateway, "The assistant had no answer. Please rephrase and try again.")
 		return

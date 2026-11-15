@@ -2,9 +2,47 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestCORSAllowsConfiguredOriginAndPreflight(t *testing.T) {
+	handler := withCORS("https://farmer.netlify.app, https://preview.netlify.app", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/plans", nil)
+	preflight.Header.Set("Origin", "https://farmer.netlify.app")
+	preflight.Header.Set("Access-Control-Request-Method", "POST")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, preflight)
+	if rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Allow-Origin") != "https://farmer.netlify.app" {
+		t.Fatalf("preflight response = %d, headers %v", rec.Code, rec.Header())
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/plans", nil)
+	request.Header.Set("Origin", "https://preview.netlify.app")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, request)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "https://preview.netlify.app" {
+		t.Fatalf("request response = %d, headers %v", rec.Code, rec.Header())
+	}
+}
+
+func TestCORSRejectsUnconfiguredPreflight(t *testing.T) {
+	handler := withCORS("https://farmer.netlify.app", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("disallowed preflight reached the handler")
+	}))
+	request := httptest.NewRequest(http.MethodOptions, "/api/plans", nil)
+	request.Header.Set("Origin", "https://untrusted.example")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
 
 func TestValidateRequestRequiresFarmPriorities(t *testing.T) {
 	req := validPlanRequest()

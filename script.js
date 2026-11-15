@@ -10,12 +10,19 @@ const resultsList = document.getElementById("place-results");
 const selectedPlaceLabel = document.getElementById("selected-place");
 const submitButton = document.getElementById("submit-button");
 const formMessage = document.getElementById("form-message");
+const API_BASE_URL = String(window.AGRISMART_API_BASE || "").replace(/\/+$/, "");
+
+function apiURL(path) {
+  return `${API_BASE_URL}${path}`;
+}
 
 let selectedPlace = null;
 let countryLoadId = 0;
 let nasaMap = null;
 let placeMarker = null;
 let imageryLayer = null;
+let vegetationLayer = null;
+let currentMapImageDate = "";
 let formRevision = 0;
 let gpsRequestId = 0;
 let lastPlan = null;
@@ -27,6 +34,10 @@ let forecastRequestId = 0;
 const gpsButton = document.getElementById("use-gps");
 const gpsMessage = document.getElementById("gps-message");
 const manualDetails = document.getElementById("manual-details");
+
+if (window.location.protocol === "file:") {
+  formMessage.textContent = "You opened this page directly. Start the AgriSmart web server and open http://localhost:8080 to use location search and crop planning.";
+}
 
 form.addEventListener("input", () => { formRevision++; clearResult(); });
 form.addEventListener("change", () => { formRevision++; clearResult(); });
@@ -42,7 +53,7 @@ continentSelect.addEventListener("change", async () => {
     return;
   }
   try {
-    const response = await fetch(`/api/locations/countries?continent=${encodeURIComponent(continentSelect.value)}`);
+    const response = await fetch(apiURL(`/api/locations/countries?continent=${encodeURIComponent(continentSelect.value)}`));
     const countries = await response.json();
     if (!response.ok) throw new Error(countries.error || "Could not load country choices.");
     if (loadId !== countryLoadId) return;
@@ -111,7 +122,7 @@ placeButton.addEventListener("click", async () => {
       district: search.district,
       language: navigator.language || "en"
     });
-    const response = await fetch(`/api/locations/search?${params}`);
+    const response = await fetch(apiURL(`/api/locations/search?${params}`));
     const places = await response.json();
     if (!response.ok) throw new Error(places.error || "Place search failed.");
     if (search.countryCode !== countrySelect.value || search.region !== regionInput.value.trim() ||
@@ -154,7 +165,7 @@ gpsButton.addEventListener("click", () => {
           lon: longitude.toFixed(5),
           language: navigator.language || "en"
         });
-        const response = await fetch(`/api/locations/reverse?${params}`);
+        const response = await fetch(apiURL(`/api/locations/reverse?${params}`));
         const place = await response.json();
         if (!response.ok) throw new Error(place.error || "Could not look up your area.");
         if (requestId !== gpsRequestId) return;
@@ -262,7 +273,7 @@ form.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   submitButton.textContent = "Checking local climate data…";
   try {
-    const response = await fetch("/api/plans", {
+    const response = await fetch(apiURL("/api/plans"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -379,24 +390,51 @@ function updateNASAmap(place) {
   const center = [place.latitude, place.longitude];
   if (!nasaMap) {
     nasaMap = L.map("nasa-map", { scrollWheelZoom: false, maxZoom: 9 }).setView(center, 6);
+    nasaMap.on("overlayadd overlayremove", (event) => {
+      if (event.layer === vegetationLayer) {
+        mapNote.textContent = nasaMap.hasLayer(vegetationLayer)
+          ? "MODIS Terra NDVI shows broad vegetation greenness in the latest available 16-day composite. It cannot identify crop types or assess an individual field."
+          : `NASA MODIS Terra imagery dated ${currentMapImageDate}. Visual context only; not a crop-health diagnosis.`;
+      }
+    });
   } else {
     nasaMap.setView(center, 6);
   }
   if (placeMarker) placeMarker.remove();
   placeMarker = L.marker(center).addTo(nasaMap).bindPopup(place.path);
-  if (imageryLayer) imageryLayer.remove();
   const imageDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  imageryLayer = L.tileLayer(
-    `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${imageDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
-    {
+  currentMapImageDate = imageDate;
+  const imageryURL = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${imageDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
+  const vegetationURL = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_L3_NDVI_16Day/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png";
+  if (!imageryLayer) {
+    imageryLayer = L.tileLayer(imageryURL, {
       maxNativeZoom: 9,
       attribution: "Imagery: NASA EOSDIS GIBS"
-    }
-  ).addTo(nasaMap);
-  imageryLayer.once("tileerror", () => {
-    mapNote.textContent = "NASA imagery is temporarily unavailable. Try opening the location in NASA Worldview.";
-  });
-  mapNote.textContent = `NASA MODIS Terra imagery dated ${imageDate}. Visual context only; not a crop-health diagnosis.`;
+    }).addTo(nasaMap);
+    vegetationLayer = L.tileLayer(vegetationURL, {
+      maxNativeZoom: 9,
+      opacity: 0.72,
+      attribution: "Vegetation index: NASA EOSDIS GIBS / MODIS Terra"
+    });
+    L.control.layers(
+      { "True-colour satellite": imageryLayer },
+      { "16-day vegetation index (NDVI)": vegetationLayer },
+      { collapsed: false }
+    ).addTo(nasaMap);
+    vegetationLayer.once("tileerror", () => {
+      if (nasaMap.hasLayer(vegetationLayer)) {
+        mapNote.textContent = "NASA MODIS vegetation imagery is temporarily unavailable.";
+      }
+    });
+    imageryLayer.once("tileerror", () => {
+      mapNote.textContent = "NASA imagery is temporarily unavailable. Try opening the location in NASA Worldview.";
+    });
+  } else {
+    imageryLayer.setUrl(imageryURL);
+  }
+  mapNote.textContent = nasaMap.hasLayer(vegetationLayer)
+    ? "MODIS Terra NDVI shows broad vegetation greenness in the latest available 16-day composite. It cannot identify crop types or assess an individual field."
+    : `NASA MODIS Terra imagery dated ${imageDate}. Visual context only; not a crop-health diagnosis.`;
 
   const bounds = [
     (place.longitude - 0.6).toFixed(4),
@@ -501,10 +539,78 @@ function renderSuggestions() {
 function addBubble(kind, text) {
   const bubble = document.createElement("div");
   bubble.className = `chat-bubble ${kind}`;
-  bubble.textContent = text;
+  if (kind === "bot") {
+    renderAssistantMessage(bubble, text);
+  } else {
+    bubble.textContent = text;
+  }
   chatLog.append(bubble);
   chatLog.scrollTop = chatLog.scrollHeight;
   return bubble;
+}
+
+function renderAssistantMessage(container, text) {
+  let paragraph = null;
+  let list = null;
+
+  const flushParagraph = () => {
+    if (paragraph) container.append(paragraph);
+    paragraph = null;
+  };
+  const flushList = () => {
+    if (list) container.append(list);
+    list = null;
+  };
+
+  for (const line of text.split(/\r?\n/)) {
+    const listMatch = line.match(/^\s*(?:([-*])|(\d+)[.)])\s+(.+)$/);
+    const headingMatch = line.match(/^#{1,3}\s+(.+)$/);
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    if (listMatch) {
+      flushParagraph();
+      const type = listMatch[1] ? "ul" : "ol";
+      if (!list || list.tagName.toLowerCase() !== type) {
+        flushList();
+        list = document.createElement(type);
+      }
+      const item = document.createElement("li");
+      appendFormattedText(item, listMatch[3]);
+      list.append(item);
+      continue;
+    }
+    flushList();
+    if (headingMatch) {
+      flushParagraph();
+      const heading = document.createElement("strong");
+      appendFormattedText(heading, headingMatch[1]);
+      container.append(heading);
+      continue;
+    }
+    if (!paragraph) paragraph = document.createElement("p");
+    else paragraph.append(document.createElement("br"));
+    appendFormattedText(paragraph, line);
+  }
+  flushParagraph();
+  flushList();
+}
+
+function appendFormattedText(container, text) {
+  const formatting = /(\*\*[^*\n]+?\*\*|__[^_\n]+?__|`[^`\n]+`|\*[^*\n]+?\*)/g;
+  let position = 0;
+  for (const match of text.matchAll(formatting)) {
+    container.append(document.createTextNode(text.slice(position, match.index)));
+    const token = match[0];
+    const isBold = token.startsWith("**") || token.startsWith("__");
+    const element = document.createElement(isBold ? "strong" : token.startsWith("`") ? "code" : "em");
+    element.textContent = isBold ? token.slice(2, -2) : token.slice(1, -1);
+    container.append(element);
+    position = match.index + token.length;
+  }
+  container.append(document.createTextNode(text.slice(position)));
 }
 
 function chatContext() {
@@ -558,7 +664,7 @@ async function sendChat(rawText) {
   chatSend.disabled = true;
   const typing = addBubble("bot typing", "Thinking…");
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch(apiURL("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -595,7 +701,7 @@ async function loadConditions(place) {
   conditionsStatus.textContent = "Checking the latest NASA data for your location…";
   try {
     const params = new URLSearchParams({ lat: place.latitude.toFixed(2), lon: place.longitude.toFixed(2) });
-    const response = await fetch(`/api/conditions?${params}`);
+    const response = await fetch(apiURL(`/api/conditions?${params}`));
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Recent conditions are unavailable.");
     if (requestId !== conditionsRequestId) return;
@@ -617,7 +723,7 @@ async function loadForecast(place) {
   forecastCard.hidden = true;
   try {
     const params = new URLSearchParams({ lat: place.latitude.toFixed(2), lon: place.longitude.toFixed(2) });
-    const response = await fetch(`/api/forecast?${params}`);
+    const response = await fetch(apiURL(`/api/forecast?${params}`));
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "The forecast is unavailable.");
     if (requestId !== forecastRequestId) return;
