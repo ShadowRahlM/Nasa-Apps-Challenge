@@ -1,18 +1,17 @@
 # AgriSmart
 
-AgriSmart is a global, farmer-focused crop-rotation decision-support prototype. Farmers choose a location, share their priorities and optional soil details, and receive an explainable rotation suggestion built from local climate patterns.
+**Climate-informed crop planning for smallholder farmers.** AgriSmart turns a farm’s location, priorities, and optional soil and crop-history details into an explainable crop-rotation plan.
 
-The project uses a Go HTTP server, PostgreSQL, NASA POWER climate data, NASA GIBS satellite imagery, and a lightweight HTML/CSS/JavaScript interface.
+It combines historical climate analysis from **NASA POWER** with short-term weather outlooks, **NASA GIBS** satellite imagery, and an AI farm assistant. Built as a decision-support prototype with a Go backend, PostgreSQL, and a lightweight HTML/CSS/JavaScript frontend.
 
-## PR feature highlights
+## Features
 
-The current release adds the full farmer workflow to the prototype:
-
-- One-tap GPS and guided location selection for farm setup
-- Historical climate analysis across the last 10 years and a 14-day forecast outlook
-- Explainable crop rotation recommendations based on rainfall, temperature, seasonal windows, and farmer priorities
-- AI-powered farm-plan chat to answer questions in the farmer's language using plan context
-- Interactive map views with NASA GIBS imagery and NDVI overlay support
+- One-tap GPS or guided location selection
+- Historical analysis of rainfall, temperature, heat, and seasonal patterns
+- Explainable crop-rotation suggestions based on climate, farmer priorities, and recent crop history
+- Recent conditions and a 14-day forecast outlook
+- Interactive NASA satellite imagery with an optional vegetation-index layer
+- AI farm assistant that can answer questions using the generated farm plan
 - Saved farm plans and recommendation history in PostgreSQL
 
 ## What it does
