@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: agrismart-api
+    runtime: go
+    buildCommand: go build -o agrismart .
+    startCommand: ./agrismart
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b

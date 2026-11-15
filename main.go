@@ -31,6 +31,13 @@ type app struct {
 	countryCacheMu   sync.Mutex
 	countryCache     []cachedCountry
 	countryCacheTill time.Time
+	chatLimiter      *rateLimiter
+
+	conditionsLimiter *rateLimiter
+	conditionsMu      sync.Mutex
+	conditionsCache   map[string]cachedConditions
+	forecastMu        sync.Mutex
+	forecastCache     map[string]cachedForecast
 }
 
 type planRequest struct {
@@ -148,21 +155,26 @@ func main() {
 		log.Fatalf("initialize PostgreSQL schema: %v", err)
 	}
 
-	server := &app{db: db, httpClient: &http.Client{Timeout: 45 * time.Second}}
+	server := &app{db: db, httpClient: &http.Client{Timeout: 45 * time.Second}, chatLimiter: newRateLimiter(chatRequestsPerMin), conditionsLimiter: newRateLimiter(30)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
 	mux.HandleFunc("GET /api/locations/countries", server.listCountries)
 	mux.HandleFunc("GET /api/locations/search", server.searchPlaces)
+	mux.HandleFunc("GET /api/locations/reverse", server.reverseLocation)
+	mux.HandleFunc("GET /api/conditions", server.conditions)
+	mux.HandleFunc("GET /api/forecast", server.forecast)
 	mux.HandleFunc("POST /api/plans", server.createPlan)
+	mux.HandleFunc("POST /api/chat", server.chat)
 	mux.HandleFunc("GET /", serveAsset("index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /styles.css", serveAsset("styles.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /script.js", serveAsset("script.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /api-config.js", serveAsset("api-config.js", "text/javascript; charset=utf-8"))
 
-	addr := envOr("ADDR", ":8080")
+	addr := envOr("ADDR", ":"+envOr("PORT", "8080"))
 	log.Printf("AgriSmart listening on %s", addr)
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           withSecurityHeaders(mux),
+		Handler:           withSecurityHeaders(withCORS(os.Getenv("ALLOWED_ORIGINS"), mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      55 * time.Second,
@@ -524,8 +536,10 @@ func validateRequest(req *planRequest) error {
 	if req.SoilPH != nil && (*req.SoilPH < 3 || *req.SoilPH > 10 || math.IsNaN(*req.SoilPH) || math.IsInf(*req.SoilPH, 0)) {
 		return errors.New("Soil pH must be between 3 and 10.")
 	}
-	if !supportedContinent(req.Continent) || strings.TrimSpace(req.Country) == "" ||
-		len(req.Country) > 100 || len(req.CountryCode) != 2 {
+	// GPS lookups can fail to name the country; the coordinates are what the
+	// climate data needs, so an empty continent/country code is allowed.
+	if (req.Continent != "" && !supportedContinent(req.Continent)) || strings.TrimSpace(req.Country) == "" ||
+		len(req.Country) > 100 || (req.CountryCode != "" && len(req.CountryCode) != 2) {
 		return errors.New("Choose a continent and country.")
 	}
 	for _, character := range req.CountryCode {
@@ -977,6 +991,38 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withCORS(allowedOrigins string, next http.Handler) http.Handler {
+	origins := make(map[string]struct{})
+	for _, origin := range strings.Split(allowedOrigins, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		_, allowed := origins[origin]
+		if r.Method == http.MethodOptions {
+			if origin == "" || !allowed {
+				http.Error(w, "Origin is not allowed.", http.StatusForbidden)
+				return
+			}
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if allowed {
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
